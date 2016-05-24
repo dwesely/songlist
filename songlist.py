@@ -45,6 +45,7 @@ class Song:
     def increment_lastCount(self):
         self.lastCount = self.lastCount + 1
 def getSong(number, title):
+    print('Getting song # {}, called {}'.format(number,title))
     if number not in Song.songs_dict:
         songObj = Song(number, title)
         print('Saved #{}: {}'.format(number,title))
@@ -59,14 +60,20 @@ class SongTitle:
     def __init__(self, number, title):
         self.title         = title
         self.number        = number
+        self.useCount      = 1
         
         SongTitle.songTitles_dict[title] = self
 def getSongNumber(title):
+    print('Getting song titled {}'.format(title))
     if title not in SongTitle.songTitles_dict:
         print('Song title "{}" not found in list.'.format(title))
         songTitleObj = []
-    else:
+    elif isinstance(title, basestring):
         songTitleObj = SongTitle.songTitles_dict.get(title)
+        songTitleObj.useCount = songTitleObj.useCount + 1
+    else:
+        print('Song title is not a string.')
+        songTitleObj = []        
     return songTitleObj
 
 class ServiceDate:
@@ -84,20 +91,26 @@ class ServiceDate:
         ServiceDate.serviceDate_dict[date] = self
         self.parseRawSongString()
     def parseRawSongString(self):
+        print('\nProcessing raw string for date {}'.format(self.date.isoformat()))
         if not self.rawSongString:
             print('No raw song string for date {}'.format(self.date.isoformat()))
         else:
             
             #Cleaning
-            cleanedSongString = self.rawSongString
+            cleanedSongString = self.rawSongString.replace('TENTATIVE: ','')
             
             ##remove preambles (e.g. "Tentative:")
+            
             numbersFound = re.findall(r'\d+',cleanedSongString)
+            lettersFound = re.findall(r'[a-zA-Z]',cleanedSongString)
+            semicolonFound = cleanedSongString.find(';')>0
+            
             #if no semicolon:
-            if len(numbersFound) > 1 and not cleanedSongString.find(';')>0:
+            if (len(lettersFound) < 1 or len(numbersFound) > 1) and not semicolonFound:
                 #could just be a single song
-                print(re.sub(r'[_]*\W+(\d+)',';{\1}',cleanedSongString))
-                cleanedSongString = re.sub(r'[_]*\W+(\d+)',';{\1}',cleanedSongString)
+                cleanedSongString = re.sub(r'[#_, ]+(\d+)',r';\1',cleanedSongString)
+                cleanedSongString = re.sub(r'^;','',cleanedSongString)
+                print(cleanedSongString)
                 #identify if digits are in front or in back of the titles (find first digit, count index, if <5, digits are in front)
                 #replace non-word characters in front/behind the digits with semicolons
                 #r('(\W+\d+)')
@@ -106,27 +119,60 @@ class ServiceDate:
             individualSongs = cleanedSongString.split(';')
             print(individualSongs)
             
-            for songStr in individualSongs:
+            for songidx,songStr in enumerate(individualSongs):
                 #parse song title and number
                 #song number first:
+                numberOnly  = re.search(r'\D*(\d+)\D*',songStr)
                 numberTitle = re.search(r'\D*(\d+)\W*(\D+[^;]+)',songStr)
                 if not numberTitle:
+                    if numberOnly:
+                        print('Number only: {}'.format(numberOnly.group(0)))
+                        songNumber = numberOnly.group(0)
+                        songTitle  = ''
+                    else:
+                        titleObj = getSongNumber(songStr)
+                        if titleObj:
+                            songNumber = titleObj.number
+                            print('No number identified for song: {}, using {}'.format(songStr,songNumber))
+                        else:
+                            print('No number identified for song: {}'.format(songStr))                            
+                            return
+                        
                     print('Song {} not parsed.'.format(songStr))
-                    return
+
                 elif not numberTitle.group(2).strip(' \t\n\r'):
                     print('No title for song {}'.format(numberTitle.group(1)))
+                    if numberOnly:
+                        print('Number only: {}'.format(numberOnly.group(0)))
+                        songNumber = numberOnly.group(0)
+                        songTitle  = ''
+                    else:
+                        titleObj = getSongNumber(songStr)
+                        if titleObj:
+                            songNumber = titleObj.number
+                            print('No number identified for song: {}, using {}'.format(songStr,songNumber))
+                        else:
+                            print('No number identified for song: {}'.format(songStr))                            
+                            return
                 else:
                     songNumber = numberTitle.group(1).strip(' \t\n\r')
                     songTitle  = numberTitle.group(2).strip(' \t\n\r')
-                    
+                    self.parsed = True                    
                     #save song
-                    songObj = getSong(songNumber, songTitle)
-                    if songObj:
-                        songObj.add_date(self.date)
+                songObj = getSong(songNumber, songTitle)
+                if songObj:
+                    songObj.add_date(self.date)
+                    if songidx == 0:
+                        songObj.firstCount = songObj.firstCount + 1
+                    elif songidx == len(individualSongs)-1:
+                        songObj.lastCount = songObj.lastCount + 1
+                    else:
+                        songObj.middleCount = songObj.middleCount + 1
+                        
 
-                    #record placement (first/middle/last)
+                #record placement (first/middle/last)
             
-            self.parsed = True
+
             print('Successfully parsed {}'.format(cleanedSongString))
         
 def getServiceDate(date):
@@ -199,6 +245,13 @@ outputFilename = 'songlistReport.txt'
 with open(outputFilename,'w') as report:
     report.write('Number of song\tSong title\tDate first used\tDate last used\t# Uses in the last 9 weeks\t# Uses in the last 52 weeks\tTotal # uses\t# Appearing First\t# Appearing Middle\t# Appearing Last')
     for song in Song.songs_dict.values():
+        titleMaxUseCount = 0
+        maxUseTitle = ''
+        for titleOption in SongTitle.songTitles_dict.values():
+            if titleOption.title and titleOption.number == song.number and titleOption.useCount > titleMaxUseCount:
+                titleMaxUseCount = titleOption.useCount
+                maxUseTitle = titleOption.title
+                print('New max use title for song {}: {}'.format(song.number,maxUseTitle))
         sortedDateList = sorted(song.dates)
         firstDate = sortedDateList[0]
         lastDate = sortedDateList[-1]
@@ -206,7 +259,7 @@ with open(outputFilename,'w') as report:
         last52WksCount = sum(1 for i in sortedDateList if i > date.today() + timedelta(days=-365))
 
         report.write('\n{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(song.number,
-                     song.title,
+                     maxUseTitle,
                      firstDate.isoformat(),
                      lastDate.isoformat(),
                      last9WksCount,
@@ -214,7 +267,8 @@ with open(outputFilename,'w') as report:
                      len(sortedDateList),
                      song.firstCount,
                      song.middleCount,
-                     song.lastCount
-))
+                     song.lastCount))
+    for songTitle in SongTitle.songTitles_dict.values():
+        report.write('\n{}\t{}'.format(songTitle.number,songTitle.title))
 report.close()
 print('Complete.')
