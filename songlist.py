@@ -63,6 +63,14 @@ class SongTitle:
         self.useCount      = 1
         
         SongTitle.songTitles_dict[title] = self
+def getSongTitle(number, title):
+    print('Getting song # {}, called {}'.format(number,title))
+    if title not in SongTitle.songTitles_dict:
+        songTitleObj = SongTitle(number, title)
+        print('Saved #{}: {}'.format(number,title))
+    else:
+        songTitleObj = SongTitle.songTitles_dict.get(title)
+    return songTitleObj
 def getSongNumber(title):
     print('Getting song titled {}'.format(title))
     if title not in SongTitle.songTitles_dict:
@@ -70,7 +78,6 @@ def getSongNumber(title):
         songTitleObj = []
     elif isinstance(title, basestring):
         songTitleObj = SongTitle.songTitles_dict.get(title)
-        songTitleObj.useCount = songTitleObj.useCount + 1
     else:
         print('Song title is not a string.')
         songTitleObj = []        
@@ -169,6 +176,9 @@ class ServiceDate:
                     else:
                         songObj.middleCount = songObj.middleCount + 1
                         
+                titleObj = getSongTitle(songNumber,songTitle)
+                if titleObj:
+                    titleObj.useCount = titleObj.useCount + 1
 
                 #record placement (first/middle/last)
             
