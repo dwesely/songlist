@@ -20,6 +20,8 @@ import os
 #Header on the date column is inconsistent, but it is consistently in the first column
 DATECOLUMN = 0
 
+VERBOSE = True
+
 class Song:
 
     songs_dict = {}
@@ -45,10 +47,12 @@ class Song:
     def increment_lastCount(self):
         self.lastCount = self.lastCount + 1
 def getSong(number, title):
-    print('Getting song # {}, called {}'.format(number,title))
+    if VERBOSE:
+        print('Getting song # {}, called {}'.format(number,title))
     if number not in Song.songs_dict:
         songObj = Song(number, title)
-        print('Saved #{}: {}'.format(number,title))
+        if VERBOSE:
+            print('Saved #{}: {}'.format(number,title))
     else:
         songObj = Song.songs_dict.get(number)
     return songObj
@@ -64,22 +68,27 @@ class SongTitle:
         
         SongTitle.songTitles_dict[title] = self
 def getSongTitle(number, title):
-    print('Getting song # {}, called {}'.format(number,title))
+    if VERBOSE:
+        print('Getting song # {}, called {}'.format(number,title))
     if title not in SongTitle.songTitles_dict:
         songTitleObj = SongTitle(number, title)
-        print('Saved #{}: {}'.format(number,title))
+        if VERBOSE:
+            print('Saved #{}: {}'.format(number,title))
     else:
         songTitleObj = SongTitle.songTitles_dict.get(title)
     return songTitleObj
 def getSongNumber(title):
-    print('Getting song titled {}'.format(title))
+    if VERBOSE:
+        print('Getting song titled {}'.format(title))
     if title not in SongTitle.songTitles_dict:
-        print('Song title "{}" not found in list.'.format(title))
+        if VERBOSE:
+            print('Song title "{}" not found in list.'.format(title))
         songTitleObj = []
     elif isinstance(title, basestring):
         songTitleObj = SongTitle.songTitles_dict.get(title)
     else:
-        print('Song title is not a string.')
+        if VERBOSE:
+            print('Song title is not a string.')
         songTitleObj = []        
     return songTitleObj
 
@@ -98,33 +107,41 @@ class ServiceDate:
         ServiceDate.serviceDate_dict[date] = self
         self.parseRawSongString()
     def parseRawSongString(self):
-        print('\nProcessing raw string for date {}'.format(self.date.isoformat()))
+        if VERBOSE:
+            print('\nProcessing raw string for date {}'.format(self.date.isoformat()))
+            print('Raw string: {}'.format(rawSongString))
         if not self.rawSongString:
-            print('No raw song string for date {}'.format(self.date.isoformat()))
+            if VERBOSE:
+                print('No raw song string for date {}'.format(self.date.isoformat()))
         else:
             
             #Cleaning
             cleanedSongString = self.rawSongString.replace('TENTATIVE: ','')
-            
-            ##remove preambles (e.g. "Tentative:")
+            cleanedSongString = re.sub(r'\d+:\d+',' ',cleanedSongString) #remove service times
+            cleanedSongString = cleanedSongString.replace('_x000a',' ')
+            if ':' in cleanedSongString:
+                print('Found colon in cleaned string:\n\t{}'.format(cleanedSongString))
+                ##TODO: remove all preambles (e.g. "Tentative:"), split on colon to handle multiple services
             
             numbersFound = re.findall(r'\d+',cleanedSongString)
             lettersFound = re.findall(r'[a-zA-Z]',cleanedSongString)
-            semicolonFound = cleanedSongString.find(';')>0
+            semicolonFound = ';' in cleanedSongString
             
             #if no semicolon:
             if (len(lettersFound) < 1 or len(numbersFound) > 1) and not semicolonFound:
                 #could just be a single song
                 cleanedSongString = re.sub(r'[#_, ]+(\d+)',r';\1',cleanedSongString)
                 cleanedSongString = re.sub(r'^;','',cleanedSongString)
-                print(cleanedSongString)
-                #identify if digits are in front or in back of the titles (find first digit, count index, if <5, digits are in front)
+                if VERBOSE:
+                    print(cleanedSongString)
+                #TODO: identify if digits are in front or in back of the titles (find first digit, count index, if <5, digits are in front)
                 #replace non-word characters in front/behind the digits with semicolons
                 #r('(\W+\d+)')
             
             #split recorded songs (typically semicolon or comma separating multiple entries)
             individualSongs = cleanedSongString.split(';')
-            print(individualSongs)
+            if VERBOSE:
+                print(individualSongs)
             
             for songidx,songStr in enumerate(individualSongs):
                 #parse song title and number
@@ -133,33 +150,40 @@ class ServiceDate:
                 numberTitle = re.search(r'\D*(\d+)\W*(\D+[^;]+)',songStr)
                 if not numberTitle:
                     if numberOnly:
-                        print('Number only: {}'.format(numberOnly.group(0)))
+                        if VERBOSE:
+                            print('Number only: {}'.format(numberOnly.group(0)))
                         songNumber = numberOnly.group(0)
                         songTitle  = ''
                     else:
                         titleObj = getSongNumber(songStr)
                         if titleObj:
                             songNumber = titleObj.number
-                            print('No number identified for song: {}, using {}'.format(songStr,songNumber))
+                            if VERBOSE:
+                                print('No number identified for song: {}, using {}'.format(songStr,songNumber))
                         else:
-                            print('No number identified for song: {}'.format(songStr))                            
+                            if VERBOSE:
+                                print('No number identified for song: {}'.format(songStr))                            
                             return
-                        
-                    print('Song {} not parsed.'.format(songStr))
+                    if VERBOSE:
+                        print('Song {} not parsed.'.format(songStr))
 
                 elif not numberTitle.group(2).strip(' \t\n\r'):
-                    print('No title for song {}'.format(numberTitle.group(1)))
+                    if VERBOSE:
+                        print('No title for song {}'.format(numberTitle.group(1)))
                     if numberOnly:
-                        print('Number only: {}'.format(numberOnly.group(0)))
+                        if VERBOSE:
+                            print('Number only: {}'.format(numberOnly.group(0)))
                         songNumber = numberOnly.group(0)
                         songTitle  = ''
                     else:
                         titleObj = getSongNumber(songStr)
                         if titleObj:
                             songNumber = titleObj.number
-                            print('No number identified for song: {}, using {}'.format(songStr,songNumber))
+                            if VERBOSE:
+                                print('No number identified for song: {}, using {}'.format(songStr,songNumber))
                         else:
-                            print('No number identified for song: {}'.format(songStr))                            
+                            if VERBOSE:
+                                print('No number identified for song: {}'.format(songStr))                            
                             return
                 else:
                     songNumber = numberTitle.group(1).strip(' \t\n\r')
@@ -182,12 +206,13 @@ class ServiceDate:
 
                 #record placement (first/middle/last)
             
-
-            print('Successfully parsed {}'.format(cleanedSongString))
+            if VERBOSE:
+                print('Successfully parsed {}'.format(cleanedSongString))
         
 def getServiceDate(date):
     if date not in ServiceDate.serviceDate_dict:
-        print('Service Date "{}" not found in list.'.format(date))
+        if VERBOSE:
+            print('Service Date "{}" not found in list.'.format(date))
         serviceDateObj = []
     else:
         serviceDateObj = ServiceDate.serviceDate_dict.get(date)
@@ -225,14 +250,15 @@ for thisFilename in os.listdir("./"):
                 #print(poc)
                 
                 rawSongString = allFields[songColumn]
-                print(rawSongString)
+                #print(rawSongString)
                 
                 ServiceDate(date, poc, rawSongString)
             else:
                 for idx, field in enumerate(allFields):
-                    if field == 'Hymn numbers':
+                    print(field)
+                    if 'Hymn' in field:
                         songColumn = idx
-                    elif field == 'Musicians / choir?':
+                    elif 'Musician' in field:
                         pocColumn = idx
                 headerProcessed = True
                 print('Skipped line: {}'.format(line))
@@ -261,7 +287,8 @@ with open(outputFilename,'w') as report:
             if titleOption.title and titleOption.number == song.number and titleOption.useCount > titleMaxUseCount:
                 titleMaxUseCount = titleOption.useCount
                 maxUseTitle = titleOption.title
-                print('New max use title for song {}: {}'.format(song.number,maxUseTitle))
+                if VERBOSE:
+                    print('New max use title for song {}: {}'.format(song.number,maxUseTitle))
         sortedDateList = sorted(song.dates)
         firstDate = sortedDateList[0]
         lastDate = sortedDateList[-1]
