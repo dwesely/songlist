@@ -13,7 +13,7 @@ repertoire.
 """
 
 import re
-from datetime import datetime
+from datetime import date,datetime
 from datetime import timedelta
 import os
 
@@ -21,6 +21,21 @@ import os
 DATECOLUMN = 0
 
 VERBOSE = True
+
+#http://stackoverflow.com/questions/16139306/determine-season-given-timestamp-in-python-using-datetime
+Y = 2000 # dummy leap year to allow input X-02-29 (leap day)
+seasons = [(0, (date(Y,  1,  1),  date(Y,  3, 20))),
+           (1, (date(Y,  3, 21),  date(Y,  6, 20))),
+           (2, (date(Y,  6, 21),  date(Y,  9, 22))),
+           (3, (date(Y,  9, 23),  date(Y, 12, 20))),
+           (0, (date(Y, 12, 21),  date(Y, 12, 31)))]
+seasonList = ['winter','spring','summer','fall']
+def get_season(now):
+    if isinstance(now, datetime):
+        now = now.date()
+    now = now.replace(year=Y)
+    return next(season for season, (start, end) in seasons
+                if start <= now <= end)
 
 class Song:
 
@@ -119,6 +134,7 @@ class ServiceDate:
             cleanedSongString = self.rawSongString.replace('TENTATIVE: ','')
             cleanedSongString = re.sub(r'\d+:\d+',' ',cleanedSongString) #remove service times
             cleanedSongString = cleanedSongString.replace('_x000a',' ')
+            cleanedSongString = cleanedSongString.replace('\d+:\d+',' ')
             if ':' in cleanedSongString:
                 print('Found colon in cleaned string:\n\t{}'.format(cleanedSongString))
                 ##TODO: remove all preambles (e.g. "Tentative:"), split on colon to handle multiple services
@@ -146,6 +162,7 @@ class ServiceDate:
             for songidx,songStr in enumerate(individualSongs):
                 #parse song title and number
                 #song number first:
+                #TODO: This logic is weird, need to clean this up
                 numberOnly  = re.search(r'\D*(\d+)\D*',songStr)
                 numberTitle = re.search(r'\D*(\d+)\W*(\D+[^;]+)',songStr)
                 if not numberTitle:
@@ -268,7 +285,17 @@ for thisFilename in os.listdir("./"):
 ##ideally, would wait till the end of loop to check for numberless
 ##look up song number using the available title
 
-
+#Assign most frequently used titles to correct for typos
+for song in Song.songs_dict.values():
+    titleMaxUseCount = 0
+    maxUseTitle = ''
+    for titleOption in SongTitle.songTitles_dict.values():
+        if titleOption.title and titleOption.number == song.number and titleOption.useCount > titleMaxUseCount:
+            titleMaxUseCount = titleOption.useCount
+            maxUseTitle = titleOption.title
+            song.title = maxUseTitle
+            if VERBOSE:
+                print('New max use title for song {}: {}'.format(song.number,maxUseTitle))
 
 #write to report:
 #Number of song,Song title,Date first used,Date last used, ...
@@ -279,24 +306,32 @@ outputFilename = 'songlistReport.txt'
 #TODO: datestamp the songlist
 
 with open(outputFilename,'w') as report:
-    report.write('Number of song\tSong title\tDate first used\tDate last used\t# Uses in the last 9 weeks\t# Uses in the last 52 weeks\tTotal # uses\t# Appearing First\t# Appearing Middle\t# Appearing Last')
-    for song in Song.songs_dict.values():
-        titleMaxUseCount = 0
-        maxUseTitle = ''
-        for titleOption in SongTitle.songTitles_dict.values():
-            if titleOption.title and titleOption.number == song.number and titleOption.useCount > titleMaxUseCount:
-                titleMaxUseCount = titleOption.useCount
-                maxUseTitle = titleOption.title
-                if VERBOSE:
-                    print('New max use title for song {}: {}'.format(song.number,maxUseTitle))
+    report.write('Number of song\tSong title\tDate first used\tDate last used\t# Uses in the last 9 weeks\t# Uses in the last 52 weeks\tTotal # uses\t# Appearing First\t# Appearing Middle\t# Appearing Last\tMonth Most Commonly Used\tSeason Most Commonly Used')
+
+    for song in sorted(Song.songs_dict.values(), key=lambda x: len(x.dates), reverse=True):
         sortedDateList = sorted(song.dates)
         firstDate = sortedDateList[0]
         lastDate = sortedDateList[-1]
         last9WksCount = sum(1 for i in sortedDateList if i > date.today() + timedelta(days=-63))
         last52WksCount = sum(1 for i in sortedDateList if i > date.today() + timedelta(days=-365))
+        
+        #Count most common month
+        monthCount = [0] * 12
+        for date in sortedDateList:
+            monthCount[date.month-1] = monthCount[date.month-1] + 1
+        maxMonthlyValue = max(monthCount)
+        maxMonth = monthCount.index(maxMonthlyValue) + 1
+        
+        seasonCount = [0] * 4
+        for date in sortedDateList:
+            seasonCount[get_season(date)] = seasonCount[get_season(date)] + 1
+        maxSeasonValue = max(seasonCount)
+        maxSeason = seasonList[seasonCount.index(maxSeasonValue)]
+        
+        
 
-        report.write('\n{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(song.number,
-                     maxUseTitle,
+        report.write('\n{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(song.number,
+                     song.title,
                      firstDate.isoformat(),
                      lastDate.isoformat(),
                      last9WksCount,
@@ -304,8 +339,15 @@ with open(outputFilename,'w') as report:
                      len(sortedDateList),
                      song.firstCount,
                      song.middleCount,
-                     song.lastCount))
-    for songTitle in SongTitle.songTitles_dict.values():
+                     song.lastCount,
+                     maxMonth,
+                     maxSeason))
+                     
+    for songTitle in sorted(SongTitle.songTitles_dict.values(), key=lambda x: x.number):
         report.write('\n{}\t{}'.format(songTitle.number,songTitle.title))
+    for serviceDate in ServiceDate.serviceDate_dict.values():
+        if not serviceDate.parsed:
+            report.write('\n{}\t{}'.format(serviceDate.date.isoformat(),serviceDate.rawSongString))
+            
 report.close()
 print('Complete.')
