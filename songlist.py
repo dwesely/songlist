@@ -42,7 +42,7 @@ class Song:
     songs_dict = {}
 
     def __init__(self, number, title):
-        self.title         = title
+        self.title         = title.strip('\n\t\r ')
         self.number        = number
         self.dates         = set([]) #set of all dates used
         self.firstCount    = 0
@@ -77,9 +77,10 @@ class SongTitle:
     songTitles_dict = {}
 
     def __init__(self, number, title):
-        self.title         = title
+        self.title         = title.strip('\n\t\r ')
         self.number        = number
         self.useCount      = 1
+        self.matchCount    = 0
         
         SongTitle.songTitles_dict[title] = self
 def getSongTitle(number, title):
@@ -94,17 +95,17 @@ def getSongTitle(number, title):
     return songTitleObj
 def getSongNumber(title):
     songTitleObj = []
+    title = title.strip('\n\t\r "')
     if VERBOSE:
         print('Getting song titled {}'.format(title))
-    if title.strip('\n\t\r '):
-        if title not in SongTitle.songTitles_dict:
-            if VERBOSE:
-                print('Song title "{}" not found in list.'.format(title))
-        elif isinstance(title, basestring):
-            songTitleObj = SongTitle.songTitles_dict.get(title)
-        else:
-            if VERBOSE:
-                print('Song title is not a string.')
+    #TODO: save unmatched song titles to separate set and count those as well
+    if title:
+        if isinstance(title, basestring):
+            for songTitle in SongTitle.songTitles_dict.values():
+                if title.upper() in songTitle.title.upper():
+                    songTitleObj = songTitle
+                    songTitleObj.matchCount = songTitleObj.matchCount + 1
+                    return songTitleObj
     else:
         if VERBOSE:
             print('Title is empty string.')
@@ -351,9 +352,9 @@ report.close()
 
 #Write log for debugging
 with open(logFilename,'w') as log:
-    log.write('Song Number\tUnique Title')
+    log.write('Song Number\tUnique Title\tUse Count\tTitle Match Count')
     for songTitle in sorted(SongTitle.songTitles_dict.values(), key=lambda x: x.number):
-        log.write('\n{}\t{}'.format(songTitle.number,songTitle.title))
+        log.write('\n{}\t{}\t{}\t{}'.format(songTitle.number,songTitle.title,songTitle.useCount,songTitle.matchCount))
     log.write('\n\nDate of Unmatched Songs\tRaw Song String')
     for serviceDate in ServiceDate.serviceDate_dict.values():
         if not serviceDate.parsed:
