@@ -50,7 +50,7 @@ class Song:
         self.lastCount     = 0
         
         Song.songs_dict[number] = self
-        #TODO: if there are spelling variations in title, maybe keep a list of referenced titles, sort, and take the median?
+        
         if title not in SongTitle.songTitles_dict:
             SongTitle(number,title)
     def add_date(self, date):
@@ -93,18 +93,21 @@ def getSongTitle(number, title):
         songTitleObj = SongTitle.songTitles_dict.get(title)
     return songTitleObj
 def getSongNumber(title):
+    songTitleObj = []
     if VERBOSE:
         print('Getting song titled {}'.format(title))
-    if title not in SongTitle.songTitles_dict:
-        if VERBOSE:
-            print('Song title "{}" not found in list.'.format(title))
-        songTitleObj = []
-    elif isinstance(title, basestring):
-        songTitleObj = SongTitle.songTitles_dict.get(title)
+    if title.strip('\n\t\r '):
+        if title not in SongTitle.songTitles_dict:
+            if VERBOSE:
+                print('Song title "{}" not found in list.'.format(title))
+        elif isinstance(title, basestring):
+            songTitleObj = SongTitle.songTitles_dict.get(title)
+        else:
+            if VERBOSE:
+                print('Song title is not a string.')
     else:
         if VERBOSE:
-            print('Song title is not a string.')
-        songTitleObj = []        
+            print('Title is empty string.')
     return songTitleObj
 
 class ServiceDate:
@@ -208,6 +211,7 @@ class ServiceDate:
                     self.parsed = True                    
                     #save song
                 songObj = getSong(songNumber, songTitle)
+                #TODO: Check if the song is already saved in this date - don't want to double count songs
                 if songObj:
                     songObj.add_date(self.date)
                     if songidx == 0:
@@ -236,6 +240,8 @@ def getServiceDate(date):
     return serviceDateObj
     
 #File management
+outputFilename = 'songlistReport.txt'
+logFilename    = 'log.txt'
 
 #Initialize variables
 
@@ -248,11 +254,18 @@ for thisFilename in os.listdir("./"):
         
         allLines = re.split(r'\n',thisFile.read())
         
-        #Define column headers - input format is pretty consistent, so I don't plan to write a parser for the header
-        pocColumn = 5
-        songColumn = 6
-        
+        #Define column headers
         headerProcessed = False
+        columnCount = len(allLines[0].split('\t'))
+        print(columnCount)
+        if columnCount>5:
+            #Typical format
+            pocColumn = 5
+            songColumn = 6
+        else:
+            #Revert to the last column if not enough columns
+            pocColumn = columnCount-1
+            songColumn = columnCount-1
         
         for line in allLines:
             allFields = re.split(r'\t',line)
@@ -261,16 +274,17 @@ for thisFilename in os.listdir("./"):
             if datestr and headerProcessed:
                 datestr = datestr.group(0)
                 date = datetime.strptime(re.sub(r'\s.*','',datestr), '%m/%d/%Y').date()
-                        
-                
                 poc = allFields[pocColumn]
-                #print(poc)
+                if VERBOSE:
+                    print('POC: {}'.format(poc))
                 
                 rawSongString = allFields[songColumn]
-                #print(rawSongString)
+                if VERBOSE:
+                    print('Raw Song String: {}'.format(rawSongString))
                 
                 ServiceDate(date, poc, rawSongString)
             else:
+                #parsing header
                 for idx, field in enumerate(allFields):
                     print(field)
                     if 'Hymn' in field:
@@ -278,7 +292,7 @@ for thisFilename in os.listdir("./"):
                     elif 'Musician' in field:
                         pocColumn = idx
                 headerProcessed = True
-                print('Skipped line: {}'.format(line))
+                print('Parsed header line: {}'.format(line))
         thisFile.close()
 
 ##if no song number:
@@ -297,17 +311,10 @@ for song in Song.songs_dict.values():
             if VERBOSE:
                 print('New max use title for song {}: {}'.format(song.number,maxUseTitle))
 
-#write to report:
-#Number of song,Song title,Date first used,Date last used, ...
-## Uses in the last 9 weeks,# Uses in the last 52 weeks,Total # uses, ...
-## Appearing First,# Appearing Middle,# Appearing Last
-outputFilename = 'songlistReport.txt'
-
-#TODO: datestamp the songlist
+#write results
 
 with open(outputFilename,'w') as report:
     report.write('Number of song\tSong title\tDate first used\tDate last used\t# Uses in the last 9 weeks\t# Uses in the last 52 weeks\tTotal # uses\t# Appearing First\t# Appearing Middle\t# Appearing Last\tMonth Most Commonly Used\tSeason Most Commonly Used')
-
     for song in sorted(Song.songs_dict.values(), key=lambda x: len(x.dates), reverse=True):
         sortedDateList = sorted(song.dates)
         firstDate = sortedDateList[0]
@@ -328,8 +335,6 @@ with open(outputFilename,'w') as report:
         maxSeasonValue = max(seasonCount)
         maxSeason = seasonList[seasonCount.index(maxSeasonValue)]
         
-        
-
         report.write('\n{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(song.number,
                      song.title,
                      firstDate.isoformat(),
@@ -342,12 +347,17 @@ with open(outputFilename,'w') as report:
                      song.lastCount,
                      maxMonth,
                      maxSeason))
-                     
+report.close()
+
+#Write log for debugging
+with open(logFilename,'w') as log:
+    log.write('Song Number\tUnique Title')
     for songTitle in sorted(SongTitle.songTitles_dict.values(), key=lambda x: x.number):
-        report.write('\n{}\t{}'.format(songTitle.number,songTitle.title))
+        log.write('\n{}\t{}'.format(songTitle.number,songTitle.title))
+    log.write('\n\nDate of Unmatched Songs\tRaw Song String')
     for serviceDate in ServiceDate.serviceDate_dict.values():
         if not serviceDate.parsed:
-            report.write('\n{}\t{}'.format(serviceDate.date.isoformat(),serviceDate.rawSongString))
-            
-report.close()
+            log.write('\n{}\t{}'.format(serviceDate.date.isoformat(),serviceDate.rawSongString))
+log.close()
+    
 print('Complete.')
