@@ -315,13 +315,16 @@ for song in Song.songs_dict.values():
 #write results
 
 with open(outputFilename,'w') as report:
-    report.write('Number of song\tSong title\tDate first used\tDate last used\t# Uses in the last 9 weeks\t# Uses in the last 52 weeks\tTotal # uses\t# Appearing First\t# Appearing Middle\t# Appearing Last\tMonth Most Commonly Used\tSeason Most Commonly Used')
+    nineWeeksAgo = date.today() + timedelta(days=-63)
+    oneYearAgo = date.today() + timedelta(days=-365)
+    report.write('Number of song\tSong title\tDate first used\tDate last used\t# Uses since {}\t# Uses in the last 52 weeks\tTotal # uses\t# Appearing First\t# Appearing Middle\t# Appearing Last\tMonth Most Commonly Used\tSeason Most Commonly Used'.format(nineWeeksAgo.strftime('%m/%d/%Y')))
+
     for song in sorted(Song.songs_dict.values(), key=lambda x: len(x.dates), reverse=True):
         sortedDateList = sorted(song.dates)
         firstDate = sortedDateList[0]
         lastDate = sortedDateList[-1]
-        last9WksCount = sum(1 for i in sortedDateList if i > date.today() + timedelta(days=-63))
-        last52WksCount = sum(1 for i in sortedDateList if i > date.today() + timedelta(days=-365))
+        last9WksCount = sum(1 for i in sortedDateList if i > nineWeeksAgo)
+        last52WksCount = sum(1 for i in sortedDateList if i > oneYearAgo)
         
         #Count most common month
         monthCount = [0] * 12
