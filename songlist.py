@@ -244,6 +244,7 @@ def getServiceDate(date):
 outputFilename = 'songlistReport.txt'
 logFilename    = 'log.txt'
 
+
 #Initialize variables
 
 #Loop through all .tsv files
@@ -312,12 +313,21 @@ for song in Song.songs_dict.values():
             if VERBOSE:
                 print('New max use title for song {}: {}'.format(song.number,maxUseTitle))
 
+#Determine most current song date
+newestSongDate = datetime(1, 1, 1).date()
+for song in Song.songs_dict.values():
+        sortedDateList = sorted(song.dates)
+        lastDate = sortedDateList[-1]
+        if lastDate > newestSongDate:
+            newestSongDate = lastDate
+    
+
 #write results
 
 with open(outputFilename,'w') as report:
     nineWeeksAgo = date.today() + timedelta(days=-63)
     oneYearAgo = date.today() + timedelta(days=-365)
-    report.write('Number of song\tSong title\tDate first used\tDate last used\t# Uses since {}\t# Uses in the last 52 weeks\tTotal # uses\t# Appearing First\t# Appearing Middle\t# Appearing Last\tMonth Most Commonly Used\tSeason Most Commonly Used'.format(nineWeeksAgo.strftime('%m/%d/%Y')))
+    report.write('Number of song\tSong title\tDate first used\tDate last used\t# Uses from {} to {}\t# Uses in the last 52 weeks\tTotal # uses\t# Appearing First\t# Appearing Middle\t# Appearing Last\tMonth Most Commonly Used\tSeason Most Commonly Used'.format(nineWeeksAgo.strftime('%m/%d/%Y'),newestSongDate.strftime('%m/%d/%Y')))
 
     for song in sorted(Song.songs_dict.values(), key=lambda x: len(x.dates), reverse=True):
         sortedDateList = sorted(song.dates)
