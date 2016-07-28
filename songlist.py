@@ -9,7 +9,7 @@ on the use of hymns, to be used as a planning tool to reduce back-to-back usage 
 hymns, but also provide a list of hymns with familiarity to be used as a baseline
 repertoire.
 
-Script downloads latest sheet using details in account.txt
+Script downloads latest sheet using details in account.txt, then uploads the results
 
 @author: Wesely
 """
@@ -39,6 +39,11 @@ DOWNLOAD_AND_UPDATE = True
 SCOPES = 'https://www.googleapis.com/auth/spreadsheets'
 CLIENT_SECRET_FILE = ''
 APPLICATION_NAME = 'MySongBot'
+
+#File management
+OUTPUT_FILENAME  = 'songlistReport.txt'
+LOG_FILENAME     = 'log.txt'
+ACCOUNT_FILENAME = 'account.txt'
 
 #Header on the date column is inconsistent, but it is consistently in the first column
 DATECOLUMN = 0
@@ -262,10 +267,18 @@ def getServiceDate(date):
     else:
         serviceDateObj = ServiceDate.serviceDate_dict.get(date)
     return serviceDateObj
+    
+def getDatedSheet():
+    #get current sheet name
+    if int(date.today().strftime('%m')) > 8:
+        currentSheetName = 'Sept {} - Aug {}'.format(date.today().strftime('%Y'),int(date.today().strftime('%Y'))+1)
+    else:
+        currentSheetName = 'Sept {} - Aug {}'.format(int(date.today().strftime('%Y'))-1,date.today().strftime('%Y'))
+    return currentSheetName
 
 def getAccountDetails():
     #Read document and client file details
-    accountFilename = 'account.txt'
+    accountFilename  = ACCOUNT_FILENAME
     docid            = None
     clientSecretFile = None
     
@@ -324,11 +337,7 @@ def downloadLatestSheets(docid,clientSecretFile):
 
     spreadsheetId = docid
     
-    #get current sheet
-    if int(date.today().strftime('%m')) > 8:
-        currentSheetName = 'Sept {} - Aug {}'.format(date.today().strftime('%Y'),int(date.today().strftime('%Y'))+1)
-    else:
-        currentSheetName = 'Sept {} - Aug {}'.format(int(date.today().strftime('%Y'))-1,date.today().strftime('%Y'))
+    currentSheetName = getDatedSheet()
         
     rangeName = currentSheetName + '!A1:H'
     result = service.spreadsheets().values().get(
@@ -349,9 +358,6 @@ def downloadLatestSheets(docid,clientSecretFile):
 def processDownloadedSheets():
     #Read data and create reports
 
-    #File management
-    outputFilename  = 'songlistReport.txt'
-    logFilename     = 'log.txt'
     
     #Loop through all .tsv files
     for thisFilename in os.listdir("./"):
@@ -429,7 +435,7 @@ def processDownloadedSheets():
                 newestSongDate = lastDate
         
     #write results
-    with open(outputFilename,'w') as report:
+    with open(OUTPUT_FILENAME,'w') as report:
         nineWeeksAgo = date.today() + timedelta(days=-63)
         oneYearAgo = date.today() + timedelta(days=-365)
         report.write('Number of song\tSong title\tDate first used\tDate last used\t# Uses from {} to {}\t# Uses in the last 52 weeks\tTotal # uses\t# Appearing First\t# Appearing Middle\t# Appearing Last\tMonth Most Commonly Used\tSeason Most Commonly Used'.format(nineWeeksAgo.strftime('%m/%d/%Y'),newestSongDate.strftime('%m/%d/%Y')))
@@ -469,7 +475,7 @@ def processDownloadedSheets():
     report.close()
     
     #Write log for debugging
-    with open(logFilename,'w') as log:
+    with open(LOG_FILENAME,'w') as log:
         log.write('Song Number\tUnique Title\tUse Count\tTitle Match Count')
         for songTitle in sorted(SongTitle.songTitles_dict.values(), key=lambda x: x.number):
             log.write('\n{}\t{}\t{}\t{}'.format(songTitle.number,songTitle.title,songTitle.useCount,songTitle.matchCount))
@@ -481,8 +487,30 @@ def processDownloadedSheets():
         
     print('Complete.')
 
-def uploadProcessedSheets(docid):
-    #TODO: update Songlist sheet in the google doc
+def uploadProcessedSheets(docid,clientSecretFile):
+    #Updates Songlist sheet in the google doc
+
+    reportSheetName = 'SongList'
+    
+    credentials = get_credentials(clientSecretFile)
+    http = credentials.authorize(httplib2.Http())
+    discoveryUrl = ('https://sheets.googleapis.com/$discovery/rest?'
+                    'version=v4')
+    service = discovery.build('sheets', 'v4', http=http,
+                              discoveryServiceUrl=discoveryUrl)
+    rangeData = []
+    with open(OUTPUT_FILENAME,'r') as report:
+        for lineidx,line in enumerate(report):
+            rangeData.append(line.split('\t'))
+    report.close()
+    print(len(rangeData))
+    rangeName = '{}!A{}:L'.format(reportSheetName,1)
+    
+    myBody = {u'range': rangeName, u'values': rangeData, u'majorDimension': u'ROWS'}
+    rangeOutput = rangeName.encode('utf-8')
+    result = service.spreadsheets().values().update( 
+        spreadsheetId=docid, range=rangeOutput, valueInputOption='USER_ENTERED', body=myBody 
+        ).execute()    
     return
     
 def main():
@@ -493,7 +521,7 @@ def main():
     processDownloadedSheets()
     
     if DOWNLOAD_AND_UPDATE:
-        uploadProcessedSheets(docid)
+        uploadProcessedSheets(docid,clientSecretFile)
 
 if __name__ == '__main__':
     main()
