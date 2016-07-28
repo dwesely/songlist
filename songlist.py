@@ -9,13 +9,36 @@ on the use of hymns, to be used as a planning tool to reduce back-to-back usage 
 hymns, but also provide a list of hymns with familiarity to be used as a baseline
 repertoire.
 
+Script downloads latest sheet using details in account.txt
+
 @author: Wesely
 """
+
+from __future__ import print_function
+import httplib2
+
+from apiclient import discovery
+import oauth2client
+from oauth2client import client
+from oauth2client import tools
 
 import re
 from datetime import date,datetime
 from datetime import timedelta
 import os
+
+try:
+    import argparse
+    flags = argparse.ArgumentParser(parents=[tools.argparser]).parse_args()
+except ImportError:
+    flags = None
+
+DOWNLOAD_AND_UPDATE = True 
+# If modifying these scopes, delete your previously saved credentials
+# at ~/.credentials/sheets.googleapis.com-mysongbot.json
+SCOPES = 'https://www.googleapis.com/auth/spreadsheets'
+CLIENT_SECRET_FILE = ''
+APPLICATION_NAME = 'MySongBot'
 
 #Header on the date column is inconsistent, but it is consistently in the first column
 DATECOLUMN = 0
@@ -128,7 +151,7 @@ class ServiceDate:
     def parseRawSongString(self):
         if VERBOSE:
             print('\nProcessing raw string for date {}'.format(self.date.isoformat()))
-            print('Raw string: {}'.format(rawSongString))
+            print('Raw string: {}'.format(self.rawSongString))
         if not self.rawSongString:
             if VERBOSE:
                 print('No raw song string for date {}'.format(self.date.isoformat()))
@@ -239,139 +262,238 @@ def getServiceDate(date):
     else:
         serviceDateObj = ServiceDate.serviceDate_dict.get(date)
     return serviceDateObj
+
+def getAccountDetails():
+    #Read document and client file details
+    accountFilename = 'account.txt'
+    docid            = None
+    clientSecretFile = None
     
-#File management
-outputFilename = 'songlistReport.txt'
-logFilename    = 'log.txt'
-
-
-#Initialize variables
-
-#Loop through all .tsv files
-for thisFilename in os.listdir("./"):
-    if thisFilename.endswith(".tsv"):
-        print(thisFilename)
-        thisFile = open(thisFilename,'r+')
-        print('Parsing {}...'.format(thisFilename))
-        
-        allLines = re.split(r'\n',thisFile.read())
-        
-        #Define column headers
-        headerProcessed = False
-        columnCount = len(allLines[0].split('\t'))
-        print(columnCount)
-        if columnCount>5:
-            #Typical format
-            pocColumn = 5
-            songColumn = 6
-        else:
-            #Revert to the last column if not enough columns
-            pocColumn = columnCount-1
-            songColumn = columnCount-1
-        
+    with open(accountFilename, 'r') as accountDetails:
+        allLines = re.split(r'\n',accountDetails.read())
         for line in allLines:
-            allFields = re.split(r'\t',line)
-            datestr = re.match(r'\d+/\d+/\d+',allFields[DATECOLUMN])
-            #print(allFields[DATECOLUMN])
-            if datestr and headerProcessed:
-                datestr = datestr.group(0)
-                date = datetime.strptime(re.sub(r'\s.*','',datestr), '%m/%d/%Y').date()
-                poc = allFields[pocColumn]
-                if VERBOSE:
-                    print('POC: {}'.format(poc))
-                
-                rawSongString = allFields[songColumn]
-                if VERBOSE:
-                    print('Raw Song String: {}'.format(rawSongString))
-                
-                ServiceDate(date, poc, rawSongString)
+            if 'docid:' in line:
+                docid      = re.sub(r'docid:\s*'     ,'',line)
+            elif 'clientSecretFile: ' in line:
+                clientSecretFile = re.sub(r'clientSecretFile:\s*','',line)
+    return (docid,clientSecretFile)
+
+
+
+def get_credentials(clientSecretFile):
+    #From google api quick start - need credentials before downloading/uploading
+    """Gets valid user credentials from storage.
+
+    If nothing has been stored, or if the stored credentials are invalid,
+    the OAuth2 flow is completed to obtain the new credentials.
+
+    Returns:
+        Credentials, the obtained credential.
+    """
+    home_dir = os.path.expanduser('~')
+    credential_dir = os.path.join(home_dir, '.credentials')
+    if not os.path.exists(credential_dir):
+        os.makedirs(credential_dir)
+    credential_path = os.path.join(credential_dir,
+                                   'sheets.googleapis.com-mysongbot.json')
+
+    store = oauth2client.file.Storage(credential_path)
+    credentials = store.get()
+    if not credentials or credentials.invalid:
+        flow = client.flow_from_clientsecrets(clientSecretFile, SCOPES)
+        flow.user_agent = APPLICATION_NAME
+        if flags:
+            credentials = tools.run_flow(flow, store, flags)
+        else: # Needed only for compatibility with Python 2.6
+            credentials = tools.run(flow, store)
+        print('Storing credentials to ' + credential_path)
+    return credentials
+
+
+
+def downloadLatestSheets(docid,clientSecretFile):
+    #Connect to google doc and get latest data
+
+    #https://developers.google.com/sheets/quickstart/python
+    credentials = get_credentials(clientSecretFile)
+    http = credentials.authorize(httplib2.Http())
+    discoveryUrl = ('https://sheets.googleapis.com/$discovery/rest?'
+                    'version=v4')
+    service = discovery.build('sheets', 'v4', http=http,
+                              discoveryServiceUrl=discoveryUrl)
+
+    spreadsheetId = docid
+    
+    #get current sheet
+    if int(date.today().strftime('%m')) > 8:
+        currentSheetName = 'Sept {} - Aug {}'.format(date.today().strftime('%Y'),int(date.today().strftime('%Y'))+1)
+    else:
+        currentSheetName = 'Sept {} - Aug {}'.format(int(date.today().strftime('%Y'))-1,date.today().strftime('%Y'))
+        
+    rangeName = currentSheetName + '!A1:H'
+    result = service.spreadsheets().values().get(
+        spreadsheetId=spreadsheetId, range=rangeName).execute()
+    values = result.get('values', [])
+    
+    with open(currentSheetName+'.tsv','w') as downloadedTsv:
+        if not values:
+            print('No data found.')
+        else:
+            for row in values:
+                for column in row:
+                    print(column.encode('ascii', 'ignore').strip('\n\t\r'))
+                    downloadedTsv.write('%s\t' % column.encode('ascii', 'ignore').strip('\n\t\r'))
+                downloadedTsv.write('\n')
+    downloadedTsv.close()
+        
+def processDownloadedSheets():
+    #Read data and create reports
+
+    #File management
+    outputFilename  = 'songlistReport.txt'
+    logFilename     = 'log.txt'
+    
+    #Loop through all .tsv files
+    for thisFilename in os.listdir("./"):
+        if thisFilename.endswith(".tsv"):
+            print(thisFilename)
+            thisFile = open(thisFilename,'r+')
+            print('Parsing {}...'.format(thisFilename))
+            
+            allLines = re.split(r'\n',thisFile.read())
+            
+            #Define column headers
+            headerProcessed = False
+            columnCount = len(allLines[0].split('\t'))
+            print(columnCount)
+            if columnCount>5:
+                #Typical format
+                pocColumn = 5
+                songColumn = 6
             else:
-                #parsing header
-                for idx, field in enumerate(allFields):
-                    print(field)
-                    if 'Hymn' in field:
-                        songColumn = idx
-                    elif 'Musician' in field:
-                        pocColumn = idx
-                headerProcessed = True
-                print('Parsed header line: {}'.format(line))
-        thisFile.close()
+                #Revert to the last column if not enough columns
+                pocColumn = columnCount-1
+                songColumn = columnCount-1
+            
+            for line in allLines:
+                allFields = re.split(r'\t',line)
+                datestr = re.match(r'\d+/\d+/\d+',allFields[DATECOLUMN])
+                print(allFields[DATECOLUMN])
+                if datestr and headerProcessed and len(allFields)>songColumn:
+                    datestr = datestr.group(0)
+                    date = datetime.strptime(re.sub(r'\s.*','',datestr), '%m/%d/%Y').date()
+                    poc = allFields[pocColumn]
+                    if VERBOSE:
+                        print('POC: {}'.format(poc))
+                        print(len(allFields))
+                    rawSongString = allFields[songColumn]
+                    if VERBOSE:
+                        print('Raw Song String: {}'.format(rawSongString))
+                    
+                    ServiceDate(date, poc, rawSongString)
 
-##if no song number:
-##ideally, would wait till the end of loop to check for numberless
-##look up song number using the available title
-
-#Assign most frequently used titles to correct for typos
-for song in Song.songs_dict.values():
-    titleMaxUseCount = 0
-    maxUseTitle = ''
-    for titleOption in SongTitle.songTitles_dict.values():
-        if titleOption.title and titleOption.number == song.number and titleOption.useCount > titleMaxUseCount:
-            titleMaxUseCount = titleOption.useCount
-            maxUseTitle = titleOption.title
-            song.title = maxUseTitle
-            if VERBOSE:
-                print('New max use title for song {}: {}'.format(song.number,maxUseTitle))
-
-#Determine most current song date
-newestSongDate = datetime(1, 1, 1).date()
-for song in Song.songs_dict.values():
-        sortedDateList = sorted(song.dates)
-        lastDate = sortedDateList[-1]
-        if lastDate > newestSongDate:
-            newestSongDate = lastDate
+                else:
+                    #parsing header
+                    for idx, field in enumerate(allFields):
+                        print(field)
+                        if 'Hymn' in field:
+                            songColumn = idx
+                        elif 'Musician' in field:
+                            pocColumn = idx
+                    headerProcessed = True
+                    print('Parsed header line: {}'.format(line))
+            thisFile.close()
     
-
-#write results
-
-with open(outputFilename,'w') as report:
-    nineWeeksAgo = date.today() + timedelta(days=-63)
-    oneYearAgo = date.today() + timedelta(days=-365)
-    report.write('Number of song\tSong title\tDate first used\tDate last used\t# Uses from {} to {}\t# Uses in the last 52 weeks\tTotal # uses\t# Appearing First\t# Appearing Middle\t# Appearing Last\tMonth Most Commonly Used\tSeason Most Commonly Used'.format(nineWeeksAgo.strftime('%m/%d/%Y'),newestSongDate.strftime('%m/%d/%Y')))
-
-    for song in sorted(Song.songs_dict.values(), key=lambda x: len(x.dates), reverse=True):
-        sortedDateList = sorted(song.dates)
-        firstDate = sortedDateList[0]
-        lastDate = sortedDateList[-1]
-        last9WksCount = sum(1 for i in sortedDateList if i > nineWeeksAgo)
-        last52WksCount = sum(1 for i in sortedDateList if i > oneYearAgo)
-        
-        #Count most common month
-        monthCount = [0] * 12
-        for date in sortedDateList:
-            monthCount[date.month-1] = monthCount[date.month-1] + 1
-        maxMonthlyValue = max(monthCount)
-        maxMonth = monthCount.index(maxMonthlyValue) + 1
-        
-        seasonCount = [0] * 4
-        for date in sortedDateList:
-            seasonCount[get_season(date)] = seasonCount[get_season(date)] + 1
-        maxSeasonValue = max(seasonCount)
-        maxSeason = seasonList[seasonCount.index(maxSeasonValue)]
-        
-        report.write('\n{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(song.number,
-                     song.title,
-                     firstDate.isoformat(),
-                     lastDate.isoformat(),
-                     last9WksCount,
-                     last52WksCount,
-                     len(sortedDateList),
-                     song.firstCount,
-                     song.middleCount,
-                     song.lastCount,
-                     maxMonth,
-                     maxSeason))
-report.close()
-
-#Write log for debugging
-with open(logFilename,'w') as log:
-    log.write('Song Number\tUnique Title\tUse Count\tTitle Match Count')
-    for songTitle in sorted(SongTitle.songTitles_dict.values(), key=lambda x: x.number):
-        log.write('\n{}\t{}\t{}\t{}'.format(songTitle.number,songTitle.title,songTitle.useCount,songTitle.matchCount))
-    log.write('\n\nDate of Unmatched Songs\tRaw Song String')
-    for serviceDate in ServiceDate.serviceDate_dict.values():
-        if not serviceDate.parsed:
-            log.write('\n{}\t{}'.format(serviceDate.date.isoformat(),serviceDate.rawSongString))
-log.close()
+    ##if no song number:
+    ##ideally, would wait till the end of loop to check for numberless
+    ##look up song number using the available title
     
-print('Complete.')
+    #Assign most frequently used titles to correct for typos
+    for song in Song.songs_dict.values():
+        titleMaxUseCount = 0
+        maxUseTitle = ''
+        for titleOption in SongTitle.songTitles_dict.values():
+            if titleOption.title and titleOption.number == song.number and titleOption.useCount > titleMaxUseCount:
+                titleMaxUseCount = titleOption.useCount
+                maxUseTitle = titleOption.title
+                song.title = maxUseTitle
+                if VERBOSE:
+                    print('New max use title for song {}: {}'.format(song.number,maxUseTitle))
+    
+    #Determine most current song date
+    newestSongDate = datetime(1, 1, 1).date()
+    for song in Song.songs_dict.values():
+            sortedDateList = sorted(song.dates)
+            lastDate = sortedDateList[-1]
+            if lastDate > newestSongDate:
+                newestSongDate = lastDate
+        
+    #write results
+    with open(outputFilename,'w') as report:
+        nineWeeksAgo = date.today() + timedelta(days=-63)
+        oneYearAgo = date.today() + timedelta(days=-365)
+        report.write('Number of song\tSong title\tDate first used\tDate last used\t# Uses from {} to {}\t# Uses in the last 52 weeks\tTotal # uses\t# Appearing First\t# Appearing Middle\t# Appearing Last\tMonth Most Commonly Used\tSeason Most Commonly Used'.format(nineWeeksAgo.strftime('%m/%d/%Y'),newestSongDate.strftime('%m/%d/%Y')))
+    
+        for song in sorted(Song.songs_dict.values(), key=lambda x: len(x.dates), reverse=True):
+            sortedDateList = sorted(song.dates)
+            firstDate = sortedDateList[0]
+            lastDate = sortedDateList[-1]
+            last9WksCount = sum(1 for i in sortedDateList if i > nineWeeksAgo)
+            last52WksCount = sum(1 for i in sortedDateList if i > oneYearAgo)
+            
+            #Count most common month
+            monthCount = [0] * 12
+            for date in sortedDateList:
+                monthCount[date.month-1] = monthCount[date.month-1] + 1
+            maxMonthlyValue = max(monthCount)
+            maxMonth = monthCount.index(maxMonthlyValue) + 1
+            
+            seasonCount = [0] * 4
+            for date in sortedDateList:
+                seasonCount[get_season(date)] = seasonCount[get_season(date)] + 1
+            maxSeasonValue = max(seasonCount)
+            maxSeason = seasonList[seasonCount.index(maxSeasonValue)]
+            
+            report.write('\n{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(song.number,
+                         song.title,
+                         firstDate.isoformat(),
+                         lastDate.isoformat(),
+                         last9WksCount,
+                         last52WksCount,
+                         len(sortedDateList),
+                         song.firstCount,
+                         song.middleCount,
+                         song.lastCount,
+                         maxMonth,
+                         maxSeason))
+    report.close()
+    
+    #Write log for debugging
+    with open(logFilename,'w') as log:
+        log.write('Song Number\tUnique Title\tUse Count\tTitle Match Count')
+        for songTitle in sorted(SongTitle.songTitles_dict.values(), key=lambda x: x.number):
+            log.write('\n{}\t{}\t{}\t{}'.format(songTitle.number,songTitle.title,songTitle.useCount,songTitle.matchCount))
+        log.write('\n\nDate of Unmatched Songs\tRaw Song String')
+        for serviceDate in ServiceDate.serviceDate_dict.values():
+            if not serviceDate.parsed:
+                log.write('\n{}\t{}'.format(serviceDate.date.isoformat(),serviceDate.rawSongString))
+    log.close()
+        
+    print('Complete.')
+
+def uploadProcessedSheets(docid):
+    #TODO: update Songlist sheet in the google doc
+    return
+    
+def main():
+    if DOWNLOAD_AND_UPDATE:
+        (docid,clientSecretFile) = getAccountDetails()
+        downloadLatestSheets(docid,clientSecretFile)
+
+    processDownloadedSheets()
+    
+    if DOWNLOAD_AND_UPDATE:
+        uploadProcessedSheets(docid)
+
+if __name__ == '__main__':
+    main()
