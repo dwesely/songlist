@@ -438,7 +438,7 @@ def processDownloadedSheets():
     with open(OUTPUT_FILENAME,'w') as report:
         nineWeeksAgo = date.today() + timedelta(days=-63)
         oneYearAgo = date.today() + timedelta(days=-365)
-        report.write('Number of song\tSong title\tDate first used\tDate last used\t# Uses from {} to {}\t# Uses in the last 52 weeks\tTotal # uses\t# Appearing First\t# Appearing Middle\t# Appearing Last\tMonth Most Commonly Used\tSeason Most Commonly Used'.format(nineWeeksAgo.strftime('%m/%d/%Y'),newestSongDate.strftime('%m/%d/%Y')))
+        report.write('Number of song\tSong title\tDate first used\tDate last used\t# Uses from {} to {}\t# Uses in the last 52 weeks\tTotal # uses\t# Appearing First\t# Appearing Middle\t# Appearing Last\tMonth Most Commonly Used\tSeason Most Commonly Used\tSongbot was here: {}'.format(nineWeeksAgo.strftime('%m/%d/%Y'),newestSongDate.strftime('%m/%d/%Y'),date.today().strftime('%m/%d/%Y')))
     
         for song in sorted(Song.songs_dict.values(), key=lambda x: len(x.dates), reverse=True):
             sortedDateList = sorted(song.dates)
@@ -504,7 +504,7 @@ def uploadProcessedSheets(docid,clientSecretFile):
             rangeData.append(line.split('\t'))
     report.close()
     print(len(rangeData))
-    rangeName = '{}!A{}:L'.format(reportSheetName,1)
+    rangeName = '{}!A{}:M'.format(reportSheetName,1)
     
     myBody = {u'range': rangeName, u'values': rangeData, u'majorDimension': u'ROWS'}
     rangeOutput = rangeName.encode('utf-8')
